@@ -1,0 +1,7 @@
+{
+  "name": "VGMC 헌금 관리",
+  "description": "A comprehensive church offering management system designed to streamline weekly entries, track donor history, and generate detailed reports by offering code and donor ID.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
