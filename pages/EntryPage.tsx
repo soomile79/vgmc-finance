@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { storageService } from '../services/storageService';
-import { Donor, OfferingRecord, OfferingType } from '../types';
+import { Donor, OfferingType } from '../types';
 
 interface PendingItem {
   id: string;
@@ -39,7 +39,19 @@ const EntryPage: React.FC = () => {
   };
 
   const [date, setDate] = useState(getInitialDate());
-  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+
+  // --- 추가된 로직: LocalStorage 연동 ---
+  // 1. 초기 상태를 로컬스토리지에서 가져옴
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>(() => {
+    const saved = localStorage.getItem('pending_offering_items');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // 2. pendingItems가 변경될 때마다 로컬스토리지에 저장
+  useEffect(() => {
+    localStorage.setItem('pending_offering_items', JSON.stringify(pendingItems));
+  }, [pendingItems]);
+  // ------------------------------------
 
   const searchRef = useRef<HTMLDivElement>(null);
   const typeRef = useRef<HTMLDivElement>(null);
@@ -172,7 +184,10 @@ const EntryPage: React.FC = () => {
 
       await storageService.addRecords(recordsToSave);
       
+      // 저장 성공 후 로컬스토리지 비우기
       setPendingItems([]);
+      localStorage.removeItem('pending_offering_items');
+      
       alert('저장되었습니다.');
       donorInputRef.current?.focus();
     } catch (e: any) {
@@ -195,7 +210,6 @@ const EntryPage: React.FC = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [handleFinalSubmit, pendingItems.length, isSaving]);
 
-  // 대기 목록 기반 실시간 집계 프리뷰 (스크린샷 양식 + 번호순 정렬)
   const pendingSummary = useMemo(() => {
     const summary: Record<string, { total: number; donors: PendingItem[]; name: string }> = {};
     
@@ -210,11 +224,9 @@ const EntryPage: React.FC = () => {
     return Object.entries(summary)
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([code, data]) => {
-        // 성도 명단 정렬: 번호순(숫자) 우선, 번호 없으면 이름순
-        const sortedDonorStrings = data.donors.sort((a, b) => {
+        const sortedDonorStrings = [...data.donors].sort((a, b) => {
           const numA = parseInt(a.offeringNumber);
           const numB = parseInt(b.offeringNumber);
-          
           if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
           if (!isNaN(numA)) return -1;
           if (!isNaN(numB)) return 1;
@@ -236,6 +248,7 @@ const EntryPage: React.FC = () => {
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500 pb-20">
+      {/* (생략된 UI 코드들은 기존과 동일) */}
       {!isSunday && (
         <div className="bg-amber-500 text-white px-6 py-4 rounded-[24px] flex items-center justify-between shadow-lg border border-amber-400/50">
           <div className="flex items-center gap-4">
@@ -321,17 +334,17 @@ const EntryPage: React.FC = () => {
           </div>
 
           <div className="space-y-4">
-             <div>
+              <div>
                 <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">3. 금액 ($)</label>
                 <input ref={amountInputRef} type="text" placeholder="1000" className={inputStyle} value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPendingItem()} />
-             </div>
-             <div>
+              </div>
+              <div>
                 <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">4. 메모</label>
                 <input type="text" placeholder="메모..." className={inputStyle} value={note} onChange={e => setNote(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPendingItem()} />
-             </div>
+              </div>
           </div>
 
-          <button onClick={addPendingItem} className="w-2/5 bg-sky-700 text-white py-3 rounded-xl text-base font-black hover:bg-sky-600 transition-all active:scale-95 shadow-lg">항목 추가 (Enter)</button>
+          <button onClick={addPendingItem} className="w-full bg-sky-700 text-white py-3 rounded-xl text-base font-black hover:bg-sky-600 transition-all active:scale-95 shadow-lg">항목 추가 (Enter)</button>
         </section>
 
         <section className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[600px]">
