@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { storageService } from '../services/storageService';
 import { OfferingRecord, Donor, OfferingType } from '../types';
@@ -10,8 +9,12 @@ const DataPage: React.FC = () => {
   const [records, setRecords] = useState<OfferingRecord[]>([]);
   const [donors, setDonors] = useState<Donor[]>([]);
   const [offeringTypes, setOfferingTypes] = useState<OfferingType[]>([]);
+  
+  // 필터 상태 (연도 + 월 추가)
   const [filterYear, setFilterYear] = useState<string>(new Date().getFullYear().toString());
+  const [filterMonth, setFilterMonth] = useState<string>(''); // 월 필터 추가
   const [filterSearch, setFilterSearch] = useState('');
+  
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [editingRecord, setEditingRecord] = useState<OfferingRecord | null>(null);
@@ -31,31 +34,43 @@ const DataPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+  useEffect(() => { refreshData(); }, [refreshData]);
+
+  // CSV 내보내기 기능
+  const exportToCSV = () => {
+    if (filteredRecords.length === 0) return alert('내보낼 데이터가 없습니다.');
+    
+    const headers = ['날짜', '코드', '항목명', '번호', '성도명', '금액', '메모'];
+    const rows = filteredRecords.map(r => [
+      r.date,
+      r.code,
+      r.offeringName,
+      r.offeringNumber || '',
+      r.donorName,
+      r.amount.toString(),
+      (r.note || '').replace(/,/g, ' ') // 쉼표 제거
+    ]);
+
+    const csvContent = "\uFEFF" + [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `헌금내역_${filterYear}년${filterMonth ? filterMonth+'월' : ''}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleDelete = async (id: string) => {
     if (!id) return;
-    if (window.confirm('정말로 이 내역을 삭제하시겠습니까? DB에서 즉시 삭제됩니다.')) {
+    if (window.confirm('정말로 이 내역을 삭제하시겠습니까?')) {
       try {
         await storageService.deleteRecord(id);
-        
-        // 로컬 상태 즉시 반영
         setRecords(prev => prev.filter(r => String(r.id) !== String(id)));
-        
-        // 동기화 대기 목록 처리
-        const pending = storageService.getPendingSyncIds();
-        if (pending.includes(id)) {
-          const nextPending = pending.filter(p => p !== id);
-          localStorage.setItem('pending_sync_ids', JSON.stringify(nextPending));
-          setPendingCount(nextPending.length);
-        }
-        console.log(`Deleted record: ${id}`);
+        setPendingCount(storageService.getPendingSyncIds().length);
       } catch (err) {
-        console.error("Deletion Failed:", err);
         alert('삭제 중 오류가 발생했습니다.');
-        refreshData(); 
       }
     }
   };
@@ -68,7 +83,6 @@ const DataPage: React.FC = () => {
       setIsEditModalOpen(false);
       setEditingRecord(null);
       await refreshData();
-      alert('성공적으로 수정되었습니다.');
     } catch (err) {
       alert('수정 중 오류가 발생했습니다.');
     }
@@ -98,23 +112,44 @@ const DataPage: React.FC = () => {
   const filteredRecords = useMemo(() => {
     let result = records.filter(r => {
       if (!r.date) return false;
-      const matchYear = filterYear === '' || r.date.startsWith(filterYear);
+      const [y, m] = r.date.split('-');
+      const matchYear = filterYear === '' || y === filterYear;
+      const matchMonth = filterMonth === '' || m === filterMonth;
       const matchSearch = filterSearch === '' || 
         (r.donorName || '').toLowerCase().includes(filterSearch.toLowerCase()) || 
         (r.offeringNumber || '').includes(filterSearch) ||
         (r.note || '').toLowerCase().includes(filterSearch.toLowerCase());
-      return matchYear && matchSearch;
+      return matchYear && matchMonth && matchSearch;
     });
 
+    // 정렬 로직 수정 (날짜 desc -> 번호 asc -> 코드 asc)
     result.sort((a, b) => {
-      let comparison = 0;
-      if (sortKey === 'date') comparison = a.date.localeCompare(b.date);
-      else if (sortKey === 'offeringNumber') comparison = (parseInt(a.offeringNumber) || 99999) - (parseInt(b.offeringNumber) || 99999);
-      else if (sortKey === 'code') comparison = (a.code || '').localeCompare(b.code || '');
-      return sortOrder === 'asc' ? comparison : -comparison;
+      // 1. 날짜 비교
+      const dateComp = b.date.localeCompare(a.date);
+      if (dateComp !== 0) return dateComp;
+
+      // 2. 헌금번호 비교
+      const numA = parseInt(a.offeringNumber) || 99999;
+      const numB = parseInt(b.offeringNumber) || 99999;
+      if (numA !== numB) return numA - numB;
+
+      // 3. 코드 비교
+      return (a.code || '').localeCompare(b.code || '');
     });
+
+    // 만약 사용자가 수동으로 특정 컬럼 정렬을 클릭했다면 해당 정렬 적용
+    if (sortKey !== 'date' || sortOrder !== 'desc') {
+        result.sort((a, b) => {
+            let comparison = 0;
+            if (sortKey === 'date') comparison = a.date.localeCompare(b.date);
+            else if (sortKey === 'offeringNumber') comparison = (parseInt(a.offeringNumber) || 99999) - (parseInt(b.offeringNumber) || 99999);
+            else if (sortKey === 'code') comparison = (a.code || '').localeCompare(b.code || '');
+            return sortOrder === 'asc' ? comparison : -comparison;
+        });
+    }
+
     return result;
-  }, [records, filterYear, filterSearch, sortKey, sortOrder]);
+  }, [records, filterYear, filterMonth, filterSearch, sortKey, sortOrder]);
 
   const availableYears = useMemo(() => {
     const years = new Set<string>();
@@ -128,17 +163,33 @@ const DataPage: React.FC = () => {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm gap-6 print:hidden">
         <div className="space-y-1">
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">수입 통합 데이터베이스</h2>
-          <p className="text-sm font-medium text-slate-400">전체 기부 내역을 조회, 수정, 영구 삭제할 수 있습니다.</p>
+          <p className="text-sm font-medium text-slate-400">데이터를 최신순/번호순으로 정렬하여 조회합니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {/* Export 버튼 추가 */}
+          <button onClick={exportToCSV} className="px-5 py-2.5 rounded-xl font-black text-sm bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2">
+            <i className="fa-solid fa-file-excel"></i> CSV 내보내기
+          </button>
+          
           <button onClick={handleManualSync} disabled={isSyncing || pendingCount === 0} className={`px-5 py-2.5 rounded-xl font-black text-sm flex items-center gap-2 transition-all relative ${pendingCount > 0 ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
             <i className="fa-solid fa-cloud-arrow-up"></i> 시트 동기화
             {pendingCount > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full animate-bounce">{pendingCount}</span>}
           </button>
-          <select className="px-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterYear} onChange={e => setFilterYear(e.target.value)}>
-             <option value="">전체 연도</option>
-             {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
-          </select>
+
+          {/* 연도/월 필터 */}
+          <div className="flex gap-2">
+            <select className="px-3 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterYear} onChange={e => setFilterYear(e.target.value)}>
+               <option value="">전체 연도</option>
+               {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
+            </select>
+            <select className="px-3 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+               <option value="">전체 월</option>
+               {Array.from({length: 12}, (_, i) => (i + 1).toString().padStart(2, '0')).map(m => (
+                 <option key={m} value={m}>{m}월</option>
+               ))}
+            </select>
+          </div>
+
           <div className="relative">
             <i className="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
             <input type="text" placeholder="이름/번호/메모 검색" className="pl-10 pr-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500" value={filterSearch} onChange={e => setFilterSearch(e.target.value)} />
@@ -146,14 +197,15 @@ const DataPage: React.FC = () => {
         </div>
       </div>
 
+      {/* 테이블 영역 (이하 동일, 정렬 아이콘 등 유지) */}
       <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
         <table className="w-full text-left min-w-[1000px]">
           <thead className="bg-slate-50/50">
             <tr>
               <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b cursor-pointer hover:text-blue-500" onClick={() => toggleSort('date')}>날짜 {sortKey === 'date' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
-              <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b">코드</th>
+              <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b cursor-pointer hover:text-blue-500" onClick={() => toggleSort('code')}>코드 {sortKey === 'code' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
               <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b">항목명</th>
-              <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b cursor-pointer hover:text-blue-500" onClick={() => toggleSort('offeringNumber')}>번호</th>
+              <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b cursor-pointer hover:text-blue-500" onClick={() => toggleSort('offeringNumber')}>번호 {sortKey === 'offeringNumber' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
               <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b">성도명</th>
               <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b text-right">금액 ($)</th>
               <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 border-b">메모</th>
@@ -184,6 +236,7 @@ const DataPage: React.FC = () => {
         </table>
       </div>
 
+      {/* 수정 모달 (기존과 동일) */}
       {isEditModalOpen && editingRecord && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6">
           <form onSubmit={handleUpdate} className="bg-white rounded-[40px] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95">
