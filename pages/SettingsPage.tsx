@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { storageService } from '../services/storageService';
 import { Donor, OfferingType } from '../types';
@@ -18,6 +17,18 @@ const SettingsPage: React.FC = () => {
   const [isUrlLoading, setIsUrlLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success'>('idle');
 
+  // ESC 키 이벤트 핸들러
+  useEffect(() => {
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMemberModalOpen(false);
+        setIsCodeModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
+
   const refreshData = useCallback(async () => {
     try {
       const dons = await storageService.getDonors();
@@ -25,7 +36,6 @@ const SettingsPage: React.FC = () => {
       setDonors(dons);
       setCodes(offeringTypes);
       
-      // DB에서 저장된 URL을 비동기로 로드
       setIsUrlLoading(true);
       const savedUrl = await storageService.fetchGoogleSheetUrl();
       setGoogleSheetUrl(savedUrl);
@@ -78,10 +88,8 @@ const SettingsPage: React.FC = () => {
 
   const handleSaveSyncUrl = async () => {
     if (!googleSheetUrl.trim()) return alert("주소를 입력해주세요.");
-    
     setSaveStatus('saving');
     try {
-      // DB에 주소를 영구 저장
       await storageService.saveGoogleSheetUrl(googleSheetUrl);
       setSaveStatus('success');
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -139,27 +147,21 @@ const SettingsPage: React.FC = () => {
             <button onClick={() => { setEditingMember({ id: Math.random().toString(36).substring(2, 11), name: '', offeringNumber: '', note: '' }); setIsMemberModalOpen(true); }} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black shadow-lg">새 성도 등록</button>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b">
-                <tr><th className="px-6 py-4 w-32">번호</th><th className="px-6 py-4 w-48">성함</th><th className="px-6 py-4">비고</th><th className="px-6 py-4 text-center w-32">작업</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {sortedAndFilteredDonors.map(donor => (
-                  <tr key={donor.id} className="hover:bg-blue-50/20">
-                    <td className="px-6 py-4">
-                      {donor.offeringNumber ? <span className="bg-blue-600 text-white font-black px-2.5 py-1 rounded-lg text-sm">{donor.offeringNumber}</span> : <span className="text-slate-300 font-bold text-xs">없음</span>}
-                    </td>
-                    <td className="px-6 py-4 font-black text-slate-800">{donor.name}</td>
-                    <td className="px-6 py-4 text-xs text-slate-500 italic">{donor.note || '-'}</td>
-                    <td className="px-6 py-4 text-center space-x-2">
-                       <button onClick={() => { setEditingMember(donor); setIsMemberModalOpen(true); }} className="text-slate-400 hover:text-blue-600"><i className="fa-solid fa-pen"></i></button>
-                       <button onClick={() => handleDeleteMember(donor.id)} className="text-slate-400 hover:text-red-600"><i className="fa-solid fa-trash"></i></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* 수정된 부분: 4컬럼 그리드 형식의 심플 리스트 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+            {sortedAndFilteredDonors.map(donor => (
+              <div key={donor.id} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:border-blue-500 transition-colors">
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <span className="w-6 font-black text-blue-600 text-sm shrink-0">{donor.offeringNumber || '-'}</span>
+                  <span className="font-bold text-slate-800 shrink-0">{donor.name}</span>
+                  <span className="text-slate-400 text-xs truncate italic">{donor.note}</span>
+                </div>
+                <div className="flex gap-3 ml-2 shrink-0">
+                  <button onClick={() => { setEditingMember(donor); setIsMemberModalOpen(true); }} className="text-slate-400 hover:text-blue-600"><i className="fa-solid fa-pen text-xs"></i></button>
+                  <button onClick={() => handleDeleteMember(donor.id)} className="text-slate-400 hover:text-red-600"><i className="fa-solid fa-trash text-xs"></i></button>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -170,23 +172,23 @@ const SettingsPage: React.FC = () => {
              <h3 className="font-black text-slate-800 uppercase tracking-tight">헌금 종류 관리</h3>
              <button onClick={() => { setEditingCode({ code: '', label: '' }); setIsCodeModalOpen(true); }} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black shadow-lg">항목 등록</button>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm max-w-2xl">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b">
-                <tr><th className="px-6 py-4">코드</th><th className="px-6 py-4">항목명</th><th className="px-6 py-4 text-center">작업</th></tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {codes.map(c => (
-                  <tr key={c.code} className="hover:bg-blue-50/20">
-                    <td className="px-6 py-4 font-mono font-bold text-blue-600">{c.code}</td>
-                    <td className="px-6 py-4 font-black text-slate-800">{c.label}</td>
-                    <td className="px-6 py-4 text-center">
-                       <button onClick={() => { setEditingCode(c); setIsCodeModalOpen(true); }} className="text-slate-400 hover:text-blue-600"><i className="fa-solid fa-pen"></i></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {codes.map(c => (
+              <div key={c.code} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center hover:border-blue-300 transition-colors group">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 font-mono font-black border border-blue-100">
+                    {c.code}
+                  </div>
+                  <div>
+                    <div className="font-black text-slate-800">{c.label}</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">CODE: {c.code}</div>
+                  </div>
+                </div>
+                <button onClick={() => { setEditingCode(c); setIsCodeModalOpen(true); }} className="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white transition-all flex items-center justify-center">
+                  <i className="fa-solid fa-pen text-xs"></i>
+                </button>
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -236,45 +238,54 @@ const SettingsPage: React.FC = () => {
                 {saveStatus === 'saving' && 'DB 저장 중...'}
                 {saveStatus === 'success' && '클라우드 저장 완료'}
               </button>
-              {googleSheetUrl && !isUrlLoading && (
-                <div className="flex items-center gap-2 px-6 py-2 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-100 animate-in fade-in zoom-in duration-300">
-                  <i className="fa-solid fa-globe"></i>
-                  <span className="text-sm font-bold">클라우드 동기화 활성</span>
-                </div>
-              )}
             </div>
-          </div>
-          <div className="p-6 bg-blue-50 rounded-2xl border border-blue-100">
-            <h4 className="font-black text-blue-800 text-sm mb-2 uppercase tracking-tight">자동 연동 안내</h4>
-            <ul className="text-xs text-blue-600/80 space-y-2 list-disc ml-4 font-medium">
-              <li>이 주소는 데이터베이스(Cloud)에 저장되어 **어떤 기기에서 접속하든** 자동으로 공유됩니다.</li>
-              <li>주소를 변경하면 모든 사용자의 시스템에 즉시 반영됩니다.</li>
-              <li>배포(Deploy) 시 액세스 권한을 '모든 사용자(Anyone)'로 설정해야 브라우저에서 접근 가능합니다.</li>
-            </ul>
           </div>
         </section>
       )}
 
+      {/* 모달 영역 */}
       {isMemberModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
-          <form onSubmit={handleSaveMember} className="bg-white rounded-[32px] w-full max-w-lg p-10 shadow-2xl">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6" onClick={() => setIsMemberModalOpen(false)}>
+          <form onSubmit={handleSaveMember} className="bg-white rounded-[32px] w-full max-w-lg p-10 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-black text-slate-800 mb-8 tracking-tight">정보 수정/등록</h3>
             <div className="space-y-6">
               <div>
                 <label className="text-xs font-black text-slate-500 uppercase mb-2 block">성함</label>
-                <input required className={inputClass} value={editingMember?.name} onChange={e => setEditingMember({...editingMember!, name: e.target.value})} />
+                <input required className={inputClass} value={editingMember?.name || ''} onChange={e => setEditingMember({...editingMember!, name: e.target.value})} autoFocus />
               </div>
               <div>
                 <label className="text-xs font-black text-slate-500 uppercase mb-2 block">헌금번호</label>
-                <input className={inputClass} value={editingMember?.offeringNumber} onChange={e => setEditingMember({...editingMember!, offeringNumber: e.target.value})} />
+                <input className={inputClass} value={editingMember?.offeringNumber || ''} onChange={e => setEditingMember({...editingMember!, offeringNumber: e.target.value})} />
               </div>
               <div>
                 <label className="text-xs font-black text-slate-500 uppercase mb-2 block">비고 (Note)</label>
-                <input className={inputClass} value={editingMember?.note} onChange={e => setEditingMember({...editingMember!, note: e.target.value})} />
+                <input className={inputClass} value={editingMember?.note || ''} onChange={e => setEditingMember({...editingMember!, note: e.target.value})} />
               </div>
             </div>
             <div className="flex gap-4 mt-10">
-              <button type="button" onClick={() => setIsMemberModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">취소</button>
+              <button type="button" onClick={() => setIsMemberModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">취소 (ESC)</button>
+              <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 active:scale-95 transition-all">저장</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {isCodeModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6" onClick={() => setIsCodeModalOpen(false)}>
+          <form onSubmit={handleSaveCode} className="bg-white rounded-[32px] w-full max-w-lg p-10 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-2xl font-black text-slate-800 mb-8 tracking-tight">헌금 종류 수정/등록</h3>
+            <div className="space-y-6">
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase mb-2 block">코드 (예: T, G, M)</label>
+                <input required className={inputClass} value={editingCode?.code || ''} onChange={e => setEditingCode({...editingCode!, code: e.target.value.toUpperCase()})} autoFocus />
+              </div>
+              <div>
+                <label className="text-xs font-black text-slate-500 uppercase mb-2 block">항목명 (Label)</label>
+                <input required className={inputClass} value={editingCode?.label || ''} onChange={e => setEditingCode({...editingCode!, label: e.target.value})} />
+              </div>
+            </div>
+            <div className="flex gap-4 mt-10">
+              <button type="button" onClick={() => setIsCodeModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">취소 (ESC)</button>
               <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 active:scale-95 transition-all">저장</button>
             </div>
           </form>
