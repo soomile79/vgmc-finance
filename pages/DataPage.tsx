@@ -10,9 +10,9 @@ const DataPage: React.FC = () => {
   const [donors, setDonors] = useState<Donor[]>([]);
   const [offeringTypes, setOfferingTypes] = useState<OfferingType[]>([]);
   
-  // 필터 상태 (연도 + 월 추가)
+  // 필터 상태 (연도 + 월)
   const [filterYear, setFilterYear] = useState<string>(new Date().getFullYear().toString());
-  const [filterMonth, setFilterMonth] = useState<string>(''); // 월 필터 추가
+  const [filterMonth, setFilterMonth] = useState<string>('');
   const [filterSearch, setFilterSearch] = useState('');
   
   const [sortKey, setSortKey] = useState<SortKey>('date');
@@ -21,6 +21,18 @@ const DataPage: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+
+  // ESC 키로 모달 닫기 기능 추가
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsEditModalOpen(false);
+        setEditingRecord(null);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
   const refreshData = useCallback(async () => {
     try {
@@ -34,23 +46,17 @@ const DataPage: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { refreshData(); }, [refreshData]);
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
 
   // CSV 내보내기 기능
   const exportToCSV = () => {
     if (filteredRecords.length === 0) return alert('내보낼 데이터가 없습니다.');
-    
     const headers = ['날짜', '코드', '항목명', '번호', '성도명', '금액', '메모'];
     const rows = filteredRecords.map(r => [
-      r.date,
-      r.code,
-      r.offeringName,
-      r.offeringNumber || '',
-      r.donorName,
-      r.amount.toString(),
-      (r.note || '').replace(/,/g, ' ') // 쉼표 제거
+      r.date, r.code, r.offeringName, r.offeringNumber || '', r.donorName, r.amount.toString(), (r.note || '').replace(/,/g, ' ')
     ]);
-
     const csvContent = "\uFEFF" + [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -64,13 +70,16 @@ const DataPage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (!id) return;
-    if (window.confirm('정말로 이 내역을 삭제하시겠습니까?')) {
+    if (window.confirm('정말로 이 내역을 삭제하시겠습니까? DB에서 즉시 삭제됩니다.')) {
       try {
         await storageService.deleteRecord(id);
         setRecords(prev => prev.filter(r => String(r.id) !== String(id)));
-        setPendingCount(storageService.getPendingSyncIds().length);
+        const pending = storageService.getPendingSyncIds();
+        setPendingCount(pending.length);
       } catch (err) {
+        console.error("Deletion Failed:", err);
         alert('삭제 중 오류가 발생했습니다.');
+        refreshData();
       }
     }
   };
@@ -83,6 +92,7 @@ const DataPage: React.FC = () => {
       setIsEditModalOpen(false);
       setEditingRecord(null);
       await refreshData();
+      alert('성공적으로 수정되었습니다.');
     } catch (err) {
       alert('수정 중 오류가 발생했습니다.');
     }
@@ -122,32 +132,26 @@ const DataPage: React.FC = () => {
       return matchYear && matchMonth && matchSearch;
     });
 
-    // 정렬 로직 수정 (날짜 desc -> 번호 asc -> 코드 asc)
+    // 기본 정렬: 날짜 desc -> 번호 asc -> 코드 asc
     result.sort((a, b) => {
-      // 1. 날짜 비교
       const dateComp = b.date.localeCompare(a.date);
       if (dateComp !== 0) return dateComp;
-
-      // 2. 헌금번호 비교
       const numA = parseInt(a.offeringNumber) || 99999;
       const numB = parseInt(b.offeringNumber) || 99999;
       if (numA !== numB) return numA - numB;
-
-      // 3. 코드 비교
       return (a.code || '').localeCompare(b.code || '');
     });
 
-    // 만약 사용자가 수동으로 특정 컬럼 정렬을 클릭했다면 해당 정렬 적용
+    // 사용자 수동 클릭 정렬 처리
     if (sortKey !== 'date' || sortOrder !== 'desc') {
-        result.sort((a, b) => {
-            let comparison = 0;
-            if (sortKey === 'date') comparison = a.date.localeCompare(b.date);
-            else if (sortKey === 'offeringNumber') comparison = (parseInt(a.offeringNumber) || 99999) - (parseInt(b.offeringNumber) || 99999);
-            else if (sortKey === 'code') comparison = (a.code || '').localeCompare(b.code || '');
-            return sortOrder === 'asc' ? comparison : -comparison;
-        });
+      result.sort((a, b) => {
+        let comparison = 0;
+        if (sortKey === 'date') comparison = a.date.localeCompare(b.date);
+        else if (sortKey === 'offeringNumber') comparison = (parseInt(a.offeringNumber) || 99999) - (parseInt(b.offeringNumber) || 99999);
+        else if (sortKey === 'code') comparison = (a.code || '').localeCompare(b.code || '');
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
     }
-
     return result;
   }, [records, filterYear, filterMonth, filterSearch, sortKey, sortOrder]);
 
@@ -158,38 +162,40 @@ const DataPage: React.FC = () => {
     return Array.from(years).sort().reverse();
   }, [records]);
 
+  // 공통 스타일
+  const labelStyle = "text-[10px] font-black text-slate-400 uppercase ml-1 mb-1 block";
+  const inputStyle = "w-full px-5 py-3 rounded-xl border-2 border-slate-100 font-bold outline-none focus:border-blue-500 transition-all";
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20 px-4">
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm gap-6 print:hidden">
         <div className="space-y-1">
           <h2 className="text-2xl font-black text-slate-800 tracking-tight">수입 통합 데이터베이스</h2>
-          <p className="text-sm font-medium text-slate-400">데이터를 최신순/번호순으로 정렬하여 조회합니다.</p>
+          <p className="text-sm font-medium text-slate-400">데이터를 필터링하고 시트와 동기화할 수 있습니다.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Export 버튼 추가 */}
           <button onClick={exportToCSV} className="px-5 py-2.5 rounded-xl font-black text-sm bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2">
             <i className="fa-solid fa-file-excel"></i> CSV 내보내기
           </button>
           
           <button onClick={handleManualSync} disabled={isSyncing || pendingCount === 0} className={`px-5 py-2.5 rounded-xl font-black text-sm flex items-center gap-2 transition-all relative ${pendingCount > 0 ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-100 text-slate-400'}`}>
-            <i className="fa-solid fa-cloud-arrow-up"></i> 시트 동기화
+            <i className="fa-solid fa-cloud-arrow-up"></i> {isSyncing ? '동기화 중...' : '시트 동기화'}
             {pendingCount > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full animate-bounce">{pendingCount}</span>}
           </button>
 
-          {/* 연도/월 필터 */}
           <div className="flex gap-2">
-            <select className="px-3 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterYear} onChange={e => setFilterYear(e.target.value)}>
+            <select className="px-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterYear} onChange={e => setFilterYear(e.target.value)}>
                <option value="">전체 연도</option>
                {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
             </select>
-            <select className="px-3 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
+            <select className="px-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm bg-white outline-none focus:border-blue-500" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}>
                <option value="">전체 월</option>
                {Array.from({length: 12}, (_, i) => (i + 1).toString().padStart(2, '0')).map(m => (
                  <option key={m} value={m}>{m}월</option>
                ))}
             </select>
           </div>
-
+          
           <div className="relative">
             <i className="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
             <input type="text" placeholder="이름/번호/메모 검색" className="pl-10 pr-4 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500" value={filterSearch} onChange={e => setFilterSearch(e.target.value)} />
@@ -197,7 +203,7 @@ const DataPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 테이블 영역 (이하 동일, 정렬 아이콘 등 유지) */}
+      {/* 테이블 섹션 */}
       <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
         <table className="w-full text-left min-w-[1000px]">
           <thead className="bg-slate-50/50">
@@ -236,33 +242,54 @@ const DataPage: React.FC = () => {
         </table>
       </div>
 
-      {/* 수정 모달 (기존과 동일) */}
+      {/* 수정 모달 (전체 필드 포함) */}
       {isEditModalOpen && editingRecord && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6">
-          <form onSubmit={handleUpdate} className="bg-white rounded-[40px] w-full max-w-lg p-10 shadow-2xl animate-in zoom-in-95">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex items-center justify-center p-6" onClick={() => setIsEditModalOpen(false)}>
+          <form onSubmit={handleUpdate} className="bg-white rounded-[40px] w-full max-w-xl p-10 shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-black text-slate-800 mb-8 tracking-tight">상세 내역 수정</h3>
+            
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">날짜</label>
-                   <input type="date" className="w-full px-5 py-3 rounded-xl border-2 border-slate-100 font-bold outline-none focus:border-blue-500" value={editingRecord.date} onChange={e => setEditingRecord({...editingRecord, date: e.target.value})} />
+                <div>
+                   <label className={labelStyle}>날짜</label>
+                   <input type="date" required className={inputStyle} value={editingRecord.date} onChange={e => setEditingRecord({...editingRecord, date: e.target.value})} />
                 </div>
-                <div className="space-y-1">
-                   <label className="text-[10px] font-black text-slate-400 uppercase ml-1">코드</label>
-                   <input type="text" className="w-full px-5 py-3 rounded-xl border-2 border-slate-100 font-bold outline-none focus:border-blue-500" value={editingRecord.code} onChange={e => setEditingRecord({...editingRecord, code: e.target.value})} />
+                <div>
+                   <label className={labelStyle}>금액 ($)</label>
+                   <input type="number" step="any" required className={`${inputStyle} text-right`} value={editingRecord.amount} onChange={e => setEditingRecord({...editingRecord, amount: parseFloat(e.target.value) || 0})} />
                 </div>
               </div>
-              <div className="space-y-1">
-                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">금액 ($)</label>
-                 <input type="number" step="any" className="w-full px-5 py-3 rounded-xl border-2 border-slate-100 font-bold outline-none text-right focus:border-blue-500" value={editingRecord.amount} onChange={e => setEditingRecord({...editingRecord, amount: parseFloat(e.target.value) || 0})} />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                   <label className={labelStyle}>코드</label>
+                   <input type="text" className={inputStyle} value={editingRecord.code} onChange={e => setEditingRecord({...editingRecord, code: e.target.value.toUpperCase()})} />
+                </div>
+                <div>
+                   <label className={labelStyle}>항목명</label>
+                   <input type="text" className={inputStyle} value={editingRecord.offeringName} onChange={e => setEditingRecord({...editingRecord, offeringName: e.target.value})} />
+                </div>
               </div>
-              <div className="space-y-1">
-                 <label className="text-[10px] font-black text-slate-400 uppercase ml-1">메모</label>
-                 <input type="text" className="w-full px-5 py-3 rounded-xl border-2 border-slate-100 font-bold outline-none focus:border-blue-500" value={editingRecord.note || ''} onChange={e => setEditingRecord({...editingRecord, note: e.target.value})} />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                   <label className={labelStyle}>헌금번호</label>
+                   <input type="text" className={inputStyle} value={editingRecord.offeringNumber || ''} onChange={e => setEditingRecord({...editingRecord, offeringNumber: e.target.value})} />
+                </div>
+                <div>
+                   <label className={labelStyle}>성도명</label>
+                   <input type="text" className={inputStyle} value={editingRecord.donorName} onChange={e => setEditingRecord({...editingRecord, donorName: e.target.value})} />
+                </div>
+              </div>
+
+              <div>
+                 <label className={labelStyle}>메모</label>
+                 <input type="text" className={inputStyle} value={editingRecord.note || ''} onChange={e => setEditingRecord({...editingRecord, note: e.target.value})} />
               </div>
             </div>
+
             <div className="flex gap-4 mt-10">
-              <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">취소</button>
+              <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">취소 (ESC)</button>
               <button type="submit" className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100 active:scale-95 transition-all">변경 사항 저장</button>
             </div>
           </form>
