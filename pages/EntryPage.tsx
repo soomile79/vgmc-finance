@@ -40,24 +40,21 @@ const EntryPage: React.FC = () => {
 
   const [date, setDate] = useState(getInitialDate());
 
-  // --- 추가된 로직: LocalStorage 연동 ---
-  // 1. 초기 상태를 로컬스토리지에서 가져옴
   const [pendingItems, setPendingItems] = useState<PendingItem[]>(() => {
     const saved = localStorage.getItem('pending_offering_items');
     return saved ? JSON.parse(saved) : [];
   });
 
-  // 2. pendingItems가 변경될 때마다 로컬스토리지에 저장
   useEffect(() => {
     localStorage.setItem('pending_offering_items', JSON.stringify(pendingItems));
   }, [pendingItems]);
-  // ------------------------------------
 
   const searchRef = useRef<HTMLDivElement>(null);
   const typeRef = useRef<HTMLDivElement>(null);
   const donorInputRef = useRef<HTMLInputElement>(null);
   const typeInputRef = useRef<HTMLInputElement>(null);
   const amountInputRef = useRef<HTMLInputElement>(null);
+  const noteInputRef = useRef<HTMLInputElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
 
   const isSunday = useMemo(() => {
@@ -111,17 +108,17 @@ const EntryPage: React.FC = () => {
     );
   }, [offeringTypes, typeSearch, selectedType]);
 
-  const handleSelectDonor = (donor: Donor) => {
-    setSelectedDonor(donor);
-    setDonorSearch(`[${donor.offeringNumber || '무'}] ${donor.name}`);
-    setShowDonorResults(false);
-    setTimeout(() => typeInputRef.current?.focus(), 50);
-  };
-
   const handleSelectType = (type: OfferingType) => {
     setSelectedType(type);
     setTypeSearch(`${type.label} (${type.code})`);
     setShowTypeResults(false);
+    setTimeout(() => donorInputRef.current?.focus(), 50);
+  };
+
+  const handleSelectDonor = (donor: Donor) => {
+    setSelectedDonor(donor);
+    setDonorSearch(`[${donor.offeringNumber || '무'}] ${donor.name}`);
+    setShowDonorResults(false);
     setTimeout(() => amountInputRef.current?.focus(), 50);
   };
 
@@ -156,7 +153,7 @@ const EntryPage: React.FC = () => {
     setTypeSearch('');
     setSelectedType(null);
     
-    setTimeout(() => donorInputRef.current?.focus(), 50);
+    setTimeout(() => typeInputRef.current?.focus(), 50);
   };
 
   const updatePendingAmount = (id: string, newAmountStr: string) => {
@@ -166,7 +163,6 @@ const EntryPage: React.FC = () => {
 
   const handleFinalSubmit = useCallback(async () => {
     if (pendingItems.length === 0 || isSaving) return;
-    
     if (!window.confirm(`총 ${pendingItems.length}건을 DB에 최종 저장하시겠습니까?`)) return;
 
     setIsSaving(true);
@@ -183,13 +179,10 @@ const EntryPage: React.FC = () => {
       }));
 
       await storageService.addRecords(recordsToSave);
-      
-      // 저장 성공 후 로컬스토리지 비우기
       setPendingItems([]);
       localStorage.removeItem('pending_offering_items');
-      
       alert('저장되었습니다.');
-      donorInputRef.current?.focus();
+      typeInputRef.current?.focus();
     } catch (e: any) {
       alert(`저장 실패: ${e.message}`);
     } finally {
@@ -212,7 +205,6 @@ const EntryPage: React.FC = () => {
 
   const pendingSummary = useMemo(() => {
     const summary: Record<string, { total: number; donors: PendingItem[]; name: string }> = {};
-    
     pendingItems.forEach(item => {
       if (!summary[item.code]) {
         summary[item.code] = { total: 0, donors: [], name: item.offeringName };
@@ -220,41 +212,34 @@ const EntryPage: React.FC = () => {
       summary[item.code].total += item.amount;
       summary[item.code].donors.push(item);
     });
-
-    return Object.entries(summary)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([code, data]) => {
-        const sortedDonorStrings = [...data.donors].sort((a, b) => {
-          const numA = parseInt(a.offeringNumber);
-          const numB = parseInt(b.offeringNumber);
-          if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-          if (!isNaN(numA)) return -1;
-          if (!isNaN(numB)) return 1;
-          return a.donorName.localeCompare(b.donorName);
-        }).map(d => {
-          const label = d.offeringNumber ? d.offeringNumber : d.donorName;
-          return d.note ? `${label}(${d.note})` : label;
-        });
-
-        return [code, { ...data, donorStrings: sortedDonorStrings }] as const;
+    return Object.entries(summary).sort((a, b) => a[0].localeCompare(b[0])).map(([code, data]) => {
+      const sortedDonorStrings = [...data.donors].sort((a, b) => {
+        const numA = parseInt(a.offeringNumber);
+        const numB = parseInt(b.offeringNumber);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        if (!isNaN(numA)) return -1;
+        if (!isNaN(numB)) return 1;
+        return a.donorName.localeCompare(b.donorName);
+      }).map(d => {
+        const label = d.offeringNumber ? d.offeringNumber : d.donorName;
+        return d.note ? `${label}(${d.note})` : label;
       });
+      return [code, { ...data, donorStrings: sortedDonorStrings }] as const;
+    });
   }, [pendingItems]);
 
   const pendingTotal = useMemo(() => 
     pendingItems.reduce((acc, curr) => acc + curr.amount, 0), 
   [pendingItems]);
 
-  const inputStyle = "w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-base font-bold outline-none focus:border-blue-500 shadow-sm transition-all";
+  const inputStyle = "w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-base font-bold outline-none focus:border-blue-500 shadow-sm transition-all placeholder:italic placeholder:text-sm";
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500 pb-20">
-      {/* (생략된 UI 코드들은 기존과 동일) */}
       {!isSunday && (
         <div className="bg-amber-500 text-white px-6 py-4 rounded-[24px] flex items-center justify-between shadow-lg border border-amber-400/50">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center animate-pulse">
-              <i className="fa-solid fa-triangle-exclamation text-xl"></i>
-            </div>
+            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center animate-pulse"><i className="fa-solid fa-triangle-exclamation text-xl"></i></div>
             <div>
               <p className="font-black text-sm">입력 날짜 주의</p>
               <p className="text-xs opacity-90">{date}은 주일이 아닙니다.</p>
@@ -268,54 +253,55 @@ const EntryPage: React.FC = () => {
         <h2 className="text-xl font-black text-slate-800 tracking-tight shrink-0">헌금 입력 스테이션</h2>
         <div className="w-[1px] h-6 bg-slate-200 hidden md:block"></div>
         <div className="flex items-center gap-3 px-4 py-1.5 rounded-xl border border-blue-100 bg-blue-50/30">
-          <input id="offering-date" ref={dateInputRef} type="date" className="bg-transparent border-none focus:ring-0 text-slate-700 font-bold text-sm outline-none cursor-pointer" value={date} onChange={e => setDate(e.target.value)} />
+          <input ref={dateInputRef} type="date" className="bg-transparent border-none focus:ring-0 text-slate-700 font-bold text-sm outline-none cursor-pointer" value={date} onChange={e => setDate(e.target.value)} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <section className="lg:col-span-3 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-10">
-          <div className="relative" ref={searchRef}>
-            <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">1. 성도</label>
-            <input 
-              ref={donorInputRef}
-              type="text" 
-              placeholder="홍길동..." 
-              className={inputStyle}
-              value={donorSearch}
-              onFocus={() => setShowDonorResults(true)}
-              onCompositionStart={() => setIsComposing(true)}
-              onCompositionEnd={() => setIsComposing(false)}
-              onChange={e => { setDonorSearch(e.target.value); setSelectedDonor(null); setShowDonorResults(true); }}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !isComposing) {
-                  e.preventDefault();
-                  if (filteredDonors.length > 0) handleSelectDonor(filteredDonors[0]);
-                  else if (donorSearch.trim()) { setShowDonorResults(false); typeInputRef.current?.focus(); }
-                }
-              }}
-            />
-            {showDonorResults && filteredDonors.length > 0 && (
-              <ul className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
-                {filteredDonors.map((d) => (
-                  <li key={d.id} onClick={() => handleSelectDonor(d)} className="px-4 py-2.5 cursor-pointer hover:bg-blue-50 border-b last:border-0 flex items-center justify-between group">
-                    <span className="text-sm font-bold text-slate-800">{d.offeringNumber ? `[${d.offeringNumber}] ` : ''}{d.name}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
+          
+          {/* 1. 헌금 종류 */}
           <div className="relative" ref={typeRef}>
-            <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">2. 항목</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-base font-black text-slate-400 uppercase ml-1 tracking-wide">1. 헌금 종류</label>
+              
+              {/* 코드 헬퍼 번개 아이콘 (3열 와이드 모드) */}
+              <div className="group relative">
+                <i className="fa-solid fa-bolt text-amber-400 cursor-help p-1 hover:scale-110 transition-transform"></i>
+                
+                {/* 툴팁: w-[450px] 정도로 넓히고 3열 배치 */}
+                <div className="absolute right-0 top-full mt-2 hidden group-hover:block w-[480px] bg-slate-800 text-white p-5 rounded-2xl shadow-2xl z-[100] border border-slate-700 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <p className="text-[11px] font-black text-amber-400 mb-4 border-b border-slate-700 pb-2 flex justify-between">
+                    <span>전체 헌금 코드 일람</span>
+                  </p>
+                  
+                  {/* 3열 그리드 적용 및 스크롤 제거 (h-auto) */}
+                  <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-[12px] font-bold">
+                    {offeringTypes.map(t => (
+                      <div key={t.code} className="flex justify-between items-center py-1 border-b border-slate-700/30 hover:bg-slate-700/50 px-1 rounded transition-colors">
+                        <span className="text-amber-300 w-6 uppercase font-mono text-[11px]">{t.code}</span>
+                        <span className="flex-1 text-right truncate pl-2 text-slate-200">{t.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="mt-4 text-[10px] text-slate-500 text-center bg-slate-900/50 py-1.5 rounded-lg border border-slate-700/50">
+                    <span className="text-amber-600 font-black mr-1">ESC</span> 각 입력창 내용 즉시 삭제
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <input 
               ref={typeInputRef} 
               type="text" 
-              placeholder="항목 검색..." 
+              placeholder="헌금 종류 검색..." 
               className={inputStyle} 
               value={typeSearch} 
               onFocus={() => setShowTypeResults(true)} 
               onChange={e => setTypeSearch(e.target.value)}
               onKeyDown={e => {
+                if (e.key === 'Escape') { e.preventDefault(); setTypeSearch(''); setSelectedType(null); }
                 if (e.key === 'Enter' && !isComposing) {
                   e.preventDefault();
                   if (filteredTypes.length > 0) handleSelectType(filteredTypes[0]);
@@ -333,20 +319,76 @@ const EntryPage: React.FC = () => {
             )}
           </div>
 
+          {/* 2. 성도 */}
+          <div className="relative" ref={searchRef}>
+            <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">2. 성도</label>
+            <input 
+              ref={donorInputRef}
+              type="text" 
+              placeholder="홍길동..." 
+              className={inputStyle}
+              value={donorSearch}
+              onFocus={() => setShowDonorResults(true)}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              onChange={e => { setDonorSearch(e.target.value); setSelectedDonor(null); setShowDonorResults(true); }}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { e.preventDefault(); setDonorSearch(''); setSelectedDonor(null); }
+                if (e.key === 'Enter' && !isComposing) {
+                  e.preventDefault();
+                  if (filteredDonors.length > 0) handleSelectDonor(filteredDonors[0]);
+                  else if (donorSearch.trim()) { setShowDonorResults(false); amountInputRef.current?.focus(); }
+                }
+              }}
+            />
+            {showDonorResults && filteredDonors.length > 0 && (
+              <ul className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
+                {filteredDonors.map((d) => (
+                  <li key={d.id} onClick={() => handleSelectDonor(d)} className="px-4 py-2.5 cursor-pointer hover:bg-blue-50 border-b last:border-0 flex items-center justify-between group">
+                    <span className="text-sm font-bold text-slate-800">{d.offeringNumber ? `[${d.offeringNumber}] ` : ''}{d.name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div className="space-y-4">
               <div>
                 <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">3. 금액 ($)</label>
-                <input ref={amountInputRef} type="text" placeholder="1000" className={inputStyle} value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPendingItem()} />
+                <input 
+                  ref={amountInputRef} 
+                  type="text" 
+                  placeholder="1000" 
+                  className={inputStyle} 
+                  value={amount} 
+                  onChange={e => setAmount(e.target.value)} 
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') { e.preventDefault(); setAmount(''); }
+                    if (e.key === 'Enter') noteInputRef.current?.focus();
+                  }}
+                />
               </div>
               <div>
                 <label className="text-base font-black text-slate-400 uppercase mb-2 block ml-1 tracking-widest">4. 메모</label>
-                <input type="text" placeholder="메모..." className={inputStyle} value={note} onChange={e => setNote(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPendingItem()} />
+                <input 
+                  ref={noteInputRef} 
+                  type="text" 
+                  placeholder="메모..." 
+                  className={inputStyle} 
+                  value={note} 
+                  onChange={e => setNote(e.target.value)} 
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') { e.preventDefault(); setNote(''); }
+                    if (e.key === 'Enter') addPendingItem();
+                  }} 
+                />
               </div>
           </div>
 
           <button onClick={addPendingItem} className="w-full bg-sky-700 text-white py-3 rounded-xl text-base font-black hover:bg-sky-600 transition-all active:scale-95 shadow-lg">항목 추가 (Enter)</button>
         </section>
 
+        {/* 대기 목록 및 집계 섹션 (기존과 동일) */}
         <section className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col h-[600px]">
           <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
              <h3 className="font-black text-slate-800 text-base">전송 대기 목록 ({pendingItems.length})</h3>
@@ -356,7 +398,7 @@ const EntryPage: React.FC = () => {
              {pendingItems.length === 0 && <div className="h-full flex items-center justify-center text-slate-300 italic text-xs">대기 항목 없음</div>}
              {[...pendingItems].reverse().map(item => (
                <div key={item.id} className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl hover:border-blue-200 transition-all shadow-sm">
-                  <div className="flex-1 flex items-center gap-2">
+                  <div className="flex-1 flex items-center gap-2 overflow-hidden">
                     <span className="text-xs font-black text-sky-700 bg-blue-50 px-1.5 py-0.5 rounded uppercase shrink-0 min-w-[30px] text-center">{item.offeringNumber || '무'}</span>
                     <span className="text-sm font-bold text-slate-800 truncate">{item.donorName}</span>
                     <span className="text-sm font-medium text-slate-500 truncate shrink-0">{item.offeringName}</span>
@@ -407,14 +449,11 @@ const EntryPage: React.FC = () => {
                     </td>
                   </tr>
                 ))}
-                {pendingItems.length === 0 && (
-                  <tr><td colSpan={4} className="py-20 text-center text-slate-200 italic font-bold text-base">데이터가 없습니다.</td></tr>
-                )}
               </tbody>
             </table>
           </div>
 
-          <div className="p-5 bg-white-900 text-white border-t border-white-800 rounded-b-2xl shadow-inner">
+          <div className="p-5 bg-white border-t border-slate-100 rounded-b-2xl shadow-inner">
             <div className="flex justify-between items-center">
               <span className="text-base font-black text-slate-500 uppercase tracking-wide">전체 합계 확인</span>
               <span className="text-2xl font-black text-sky-700 tracking-tighter">${pendingTotal.toLocaleString()}</span>
