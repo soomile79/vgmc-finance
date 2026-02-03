@@ -89,13 +89,14 @@ const EntryPage: React.FC = () => {
   const filteredDonors = useMemo(() => {
     const query = donorSearch.trim().toLowerCase();
     if (!query) return [];
-    if (selectedDonor && donorSearch === `[${selectedDonor.offeringNumber || '무'}] ${selectedDonor.name}`) return [];
+    if (selectedDonor && donorSearch === `[${selectedDonor.offering_number || '무'}] ${selectedDonor.korean_name}`) return [];
     
     return donors.filter(d => 
-      d.name.toLowerCase().includes(query) || (d.offeringNumber && d.offeringNumber.includes(query))
+      (d.korean_name || '').toLowerCase().includes(query) || 
+      (d.offering_number && d.offering_number.toString().includes(query))
     ).sort((a,b) => {
-      const numA = parseInt(a.offeringNumber || '99999');
-      const numB = parseInt(b.offeringNumber || '99999');
+      const numA = parseInt(a.offering_number?.toString() || '99999');
+      const numB = parseInt(b.offering_number?.toString() || '99999');
       return numA - numB;
     });
   }, [donors, donorSearch, selectedDonor]);
@@ -117,21 +118,21 @@ const EntryPage: React.FC = () => {
 
   const handleSelectDonor = (donor: Donor) => {
     setSelectedDonor(donor);
-    setDonorSearch(`[${donor.offeringNumber || '무'}] ${donor.name}`);
+    setDonorSearch(`[${donor.offering_number || '무'}] ${donor.korean_name}`);
     setShowDonorResults(false);
     setTimeout(() => amountInputRef.current?.focus(), 50);
   };
 
-  const addPendingItem = () => {
+   const addPendingItem = () => {
     const parsedAmount = parseFloat(amount.replace(/,/g, ''));
     if (!selectedType || isNaN(parsedAmount)) {
       alert('헌금 항목과 금액을 정확히 입력해주세요.');
       return;
     }
     
-    const donorName = selectedDonor ? selectedDonor.name : (donorSearch || '익명');
+    const donorName = selectedDonor ? selectedDonor.korean_name : (donorSearch || '익명');
     const donorId = selectedDonor ? selectedDonor.id : '';
-    const offeringNumber = selectedDonor ? (selectedDonor.offeringNumber || '') : '';
+    const offeringNumber = selectedDonor ? (selectedDonor.offering_number?.toString() || '') : '';
 
     const newItem: PendingItem = {
       id: Math.random().toString(36).substring(2, 9),
@@ -146,6 +147,7 @@ const EntryPage: React.FC = () => {
 
     setPendingItems(prev => [...prev, newItem]);
     
+    // 초기화
     setDonorSearch('');
     setSelectedDonor(null);
     setAmount('');
@@ -342,14 +344,16 @@ const EntryPage: React.FC = () => {
               }}
             />
             {showDonorResults && filteredDonors.length > 0 && (
-              <ul className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
-                {filteredDonors.map((d) => (
-                  <li key={d.id} onClick={() => handleSelectDonor(d)} className="px-4 py-2.5 cursor-pointer hover:bg-blue-50 border-b last:border-0 flex items-center justify-between group">
-                    <span className="text-sm font-bold text-slate-800">{d.offeringNumber ? `[${d.offeringNumber}] ` : ''}{d.name}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul className="absolute z-50 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
+              {filteredDonors.map((d) => (
+                <li key={d.id} onClick={() => handleSelectDonor(d)} className="px-4 py-2.5 cursor-pointer hover:bg-blue-50 border-b last:border-0 flex items-center justify-between group">
+                  <span className="text-sm font-bold text-slate-800">
+                    {d.offering_number ? `[${d.offering_number}] ` : ''}{d.korean_name}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           </div>
 
           <div className="space-y-4">
