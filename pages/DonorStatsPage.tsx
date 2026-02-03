@@ -143,25 +143,29 @@ const DonorStatsPage: React.FC = () => {
         <div className="lg:col-span-8 relative" ref={searchRef}>
           <label className="text-2xl font-black text-sky-700 uppercase mb-4 block ml-4">성도 통합 검색</label>
           <div className="relative group">
-             <i className="fa-solid fa-magnifying-glass absolute left-8 top-1/2 -translate-y-1/2 text-slate-300 text-base group-focus-within:text-blue-500 transition-colors"></i>
-             <input 
-                ref={inputRef}
-                type="text" 
-                placeholder="교인 이름을 입력하세요..." 
-                className={`${inputClass} pl-20`}
-                value={donorSearch}
-                onFocus={() => setShowResults(true)}
-                onKeyDown={(e) => {
-                   if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (filteredSearchDonors.length > 0) {
-                        handleSelectDonor(filteredSearchDonors[0]);
-                      }
-                   }
-                }}
-                onChange={(e) => { setDonorSearch(e.target.value); setShowResults(true); }}
-             />
-          </div>
+          <i className="fa-solid fa-magnifying-glass absolute left-8 top-1/2 -translate-y-1/2 text-slate-300 text-base group-focus-within:text-blue-500 transition-colors"></i>
+          <input 
+            ref={inputRef}
+            type="text" 
+            placeholder="교인 이름을 입력하세요..." 
+            className={`${inputClass} pl-20`}
+            value={donorSearch}
+            onFocus={() => setShowResults(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (filteredSearchDonors.length > 0) {
+                    handleSelectDonor(filteredSearchDonors[0]);
+                  }
+              } else if (e.key === 'Escape') {
+                setDonorSearch(''); // 입력값 클리어
+                setShowResults(false); // 결과창 숨기기 (필요시)
+                inputRef.current?.focus(); // 포커스 유지
+              }
+            }}
+            onChange={(e) => { setDonorSearch(e.target.value); setShowResults(true); }}
+          />
+        </div>
           {showResults && filteredSearchDonors.length > 0 && (
             <ul className="absolute z-50 w-full mt-4 bg-white border-2 border-slate-100 rounded-[40px] shadow-base max-h-96 overflow-y-auto">
               {filteredSearchDonors.map(d => (
@@ -348,8 +352,8 @@ const DonorStatsPage: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white p-48 rounded-[80px] border-4 border-dashed border-slate-100 text-center flex flex-col items-center">
-            <i className="fa-solid fa-user-tag text-5xl text-slate-200 mb-10"></i>
-            <p className="text-3xl font-black text-slate-400">데이터를 분석할 성도님을 선택해주세요</p>
+            <i className="fa-solid fa-user-tag text-2xl text-slate-200 mb-10"></i>
+            <p className="text-xl font-black text-slate-400">데이터를 분석할 성도님을 선택해주세요</p>
         </div>
       )}
     </div>
