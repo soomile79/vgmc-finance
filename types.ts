@@ -9,11 +9,17 @@ export interface OfferingType {
 }
 
 export interface Donor {
-  id: string; 
-  offeringNumber?: string;
-  name: string;
-  note?: string; 
+  id: string;
+  korean_name: string;
+  english_name?: string;
+  offering_number?: string | number;
+  birthday?: string;
   phone?: string;
+  email?: string;
+  address?: string;
+  for_slip?: string;
+  note?: string;
+  remote_uuid?: string;
 }
 
 export interface OfferingRecord {
