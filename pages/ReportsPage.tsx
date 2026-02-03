@@ -7,6 +7,7 @@ const ReportsPage: React.FC = () => {
   const [records, setRecords] = useState<OfferingRecord[]>([]);
   const [currentYearStats, setCurrentYearStats] = useState<{month: string, total: number}[]>([]);
   const [lastYearStats, setLastYearStats] = useState<{month: string, total: number}[]>([]);
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
   
   const [hoveredMonthIdx, setHoveredMonthIdx] = useState<number | null>(null);
 
@@ -21,37 +22,47 @@ const ReportsPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(getInitialDate());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
+  // 1. 연도 목록 초기화
+  useEffect(() => {
+    const initYears = async () => {
+      const years = await storageService.getYearRange();
+      setAvailableYears(years);
+      if (years.length > 0) setSelectedYear(years[0]);
+    };
+    initYears();
+  }, []);
+
+  // 2. 데이터 새로고침
   const refreshData = useCallback(async () => {
-    const [recs, curr, last] = await Promise.all([
-      storageService.getRecords(),
-      storageService.getMonthlyStatsFromView(selectedYear),
-      storageService.getMonthlyStatsFromView(String(parseInt(selectedYear) - 1))
-    ]);
-    setRecords(recs);
-    setCurrentYearStats(curr);
-    setLastYearStats(last);
+    try {
+      const lastYear = (parseInt(selectedYear) - 1).toString();
+      const [recs, curr, last] = await Promise.all([
+        storageService.getRecords(selectedYear), // 해당 연도 전체 데이터
+        storageService.getMonthlyStatsFromView(selectedYear),
+        storageService.getMonthlyStatsFromView(lastYear)
+      ]);
+      setRecords(recs);
+      setCurrentYearStats(curr);
+      setLastYearStats(last);
+    } catch (err) {
+      console.error("Report Data Load Error:", err);
+    }
   }, [selectedYear]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
 
-  // Weekly Logic: 항목별 집계 및 성도 명단 정렬 (번호 순 -> 이름 순)
+  // Weekly Summary (주간 집계)
   const weeklySummary = useMemo(() => {
     const dayRecords = records.filter(r => r.date === selectedDate);
     const summary: Record<string, any> = {};
 
     dayRecords.forEach(r => {
       if (!summary[r.code]) {
-        summary[r.code] = { 
-          total: 0, 
-          name: r.offeringName || r.code, 
-          rawItems: [] 
-        };
+        summary[r.code] = { total: 0, name: r.offeringName || r.code, rawItems: [] };
       }
       summary[r.code].total += r.amount;
-      
-      // 정렬을 위해 원본 데이터를 객체 형태로 저장
       summary[r.code].rawItems.push({
         num: r.offeringNumber ? parseInt(String(r.offeringNumber)) : null,
         name: r.donorName || '익명',
@@ -60,9 +71,8 @@ const ReportsPage: React.FC = () => {
     });
 
     return Object.entries(summary)
-      .sort((a, b) => a[0].localeCompare(b[0])) // 1. 헌금 코드순 정렬
+      .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([code, data]: [string, any]) => {
-        // 2. 명단 내부 정렬 (번호 우선 -> 이름 가나다순)
         const sortedItems = data.rawItems
           .sort((a: any, b: any) => {
             if (a.num !== null && b.num !== null) return a.num - b.num;
@@ -79,13 +89,14 @@ const ReportsPage: React.FC = () => {
       });
   }, [records, selectedDate]);
 
-  // Line Chart Logic
+  // ⭐ Trend Data (연간 트렌드) - 데이터 매칭 로직 수정
   const trendData = useMemo(() => {
-    const months = Array.from({length: 12}, (_, i) => String(i + 1));
-    const maxVal = Math.max(...currentYearStats.map(s => s.total), ...lastYearStats.map(s => s.total), 1);
+    // DB(storageService)에서 넘어오는 "01", "02" 형식과 일치하도록 패딩 추가
+    const months = Array.from({length: 12}, (_, i) => String(i + 1).padStart(2, '0'));
     
     const currPoints = months.map(m => currentYearStats.find(s => s.month === m)?.total || 0);
     const lastPoints = months.map(m => lastYearStats.find(s => s.month === m)?.total || 0);
+    const maxVal = Math.max(...currPoints, ...lastPoints, 1000); // 최소 높이 보장
 
     return { months, currPoints, lastPoints, maxVal };
   }, [currentYearStats, lastYearStats]);
@@ -105,8 +116,7 @@ const ReportsPage: React.FC = () => {
              <input type="date" className="px-4 py-2 border border-slate-200 rounded-xl bg-white font-bold text-xs" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} />
            ) : (
              <select className="px-4 py-2 border border-slate-200 rounded-xl bg-white font-bold text-xs" value={selectedYear} onChange={e => setSelectedYear(e.target.value)}>
-                <option value="2026">2026년</option>
-                <option value="2025">2025년</option>
+                {availableYears.map(y => <option key={y} value={y}>{y}년</option>)}
              </select>
            )}
            <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black text-xs hover:bg-blue-600 transition-all"><i className="fa-solid fa-print mr-2"></i> 인쇄</button>
@@ -118,10 +128,10 @@ const ReportsPage: React.FC = () => {
           <div className="flex justify-between items-end border-b-2 border-slate-900 pb-6 mb-8">
               <div>
                 <h1 className="text-2xl font-black text-slate-900 tracking-tight">{selectedDate} 헌금 집계표</h1>
-                <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mt-1">VGMC Offering Ledger</p>
+                <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mt-1">VGMC Ledger Overview</p>
               </div>
               <div className="text-right">
-                <p className="text-3xl font-black text-sky-700">${weeklySummary.reduce((a,b: any) => a + b[1].total, 0).toLocaleString()}</p>
+                <p className="text-3xl font-black text-sky-700">${weeklySummary.reduce((a, b: any) => a + b[1].total, 0).toLocaleString()}</p>
               </div>
           </div>
           <table className="w-full text-left table-fixed border-collapse">
@@ -130,7 +140,7 @@ const ReportsPage: React.FC = () => {
                 <th className="px-3 py-3 text-sm font-black text-slate-400 uppercase w-20 text-center">코드</th>
                 <th className="px-3 py-3 text-sm font-black text-slate-400 uppercase w-40">항목</th>
                 <th className="px-3 py-3 text-sm font-black text-slate-400 uppercase w-32 text-right">금액</th>
-                <th className="px-3 py-3 text-sm font-black text-slate-400 uppercase">성도 명단 (번호/이름순)</th>
+                <th className="px-3 py-3 text-sm font-black text-slate-400 uppercase">성도 명단</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -146,11 +156,11 @@ const ReportsPage: React.FC = () => {
           </table>
         </section>
       ) : (
-        <div className="space-y-10 animate-in slide-in-from-bottom-5">
+        <div className="space-y-10">
            <div className="bg-white p-12 rounded-[64px] border border-slate-100 shadow-sm relative">
               <div className="flex justify-between items-center mb-16">
                  <div>
-                    <h3 className="text-xl font-black text-slate-800 tracking-tight">Financial Trajectory Analysis</h3>
+                    <h3 className="text-xl font-black text-slate-800 tracking-tight">수입 추이 분석</h3>
                     <div className="flex gap-6 mt-4">
                        <div className="flex items-center gap-2">
                           <div className="w-4 h-1 bg-blue-600 rounded-full"></div>
@@ -162,10 +172,6 @@ const ReportsPage: React.FC = () => {
                        </div>
                     </div>
                  </div>
-                 <div className="bg-blue-50 px-6 py-3 rounded-2xl border border-blue-100">
-                    <p className="text-sm font-black text-blue-600 uppercase tracking-widest mb-1">Year-to-Date Peak</p>
-                    <p className="text-xl font-black text-slate-900">{trendData.months[trendData.currPoints.indexOf(Math.max(...trendData.currPoints))]}월</p>
-                 </div>
               </div>
 
               <div className="h-96 relative px-4">
@@ -174,16 +180,13 @@ const ReportsPage: React.FC = () => {
                        <line key={val} x1="0" y1={val} x2="100" y2={val} stroke="#f1f5f9" strokeWidth="0.5" />
                     ))}
                     
-                    {hoveredMonthIdx !== null && (
-                        <line x1={getX(hoveredMonthIdx)} y1="0" x2={getX(hoveredMonthIdx)} y2="100" stroke="#3b82f6" strokeWidth="0.2" strokeDasharray="2" />
-                    )}
-
+                    {/* 지난해 라인 (배경) */}
                     <path 
                        d={`M ${trendData.lastPoints.map((v, i) => `${getX(i)} ${getY(v)}`).join(' L ')}`}
-                       fill="none" stroke="#cbd5e1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" 
-                       className="opacity-30"
+                       fill="none" stroke="#cbd5e1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="opacity-30"
                     />
 
+                    {/* 올해 라인 (메인) */}
                     <path 
                        d={`M ${trendData.currPoints.map((v, i) => `${getX(i)} ${getY(v)}`).join(' L ')}`}
                        fill="none" stroke="#3b82f6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"
@@ -192,73 +195,72 @@ const ReportsPage: React.FC = () => {
                     {trendData.currPoints.map((v, i) => (
                        <g key={i}>
                           <rect 
-                            x={getX(i) - 4} y="0" width="8" height="100" 
-                            fill="transparent" 
-                            className="cursor-pointer"
-                            onMouseEnter={() => setHoveredMonthIdx(i)}
-                            onMouseLeave={() => setHoveredMonthIdx(null)}
+                            x={getX(i) - 4} y="0" width="8" height="100" fill="transparent" className="cursor-pointer"
+                            onMouseEnter={() => setHoveredMonthIdx(i)} onMouseLeave={() => setHoveredMonthIdx(null)}
                           />
                           <circle cx={getX(i)} cy={getY(v)} r={hoveredMonthIdx === i ? "2.5" : "1.5"} fill="#3b82f6" className="pointer-events-none transition-all" />
-                          <circle cx={getX(i)} cy={getY(trendData.lastPoints[i])} r={hoveredMonthIdx === i ? "2.5" : "1.5"} fill="#cbd5e1" className="pointer-events-none transition-all opacity-40" />
                        </g>
                     ))}
                  </svg>
                  
                  <div className="flex justify-between mt-8">
-                    {trendData.months.map(m => <span key={m} className="text-[10px] font-black text-slate-400">{m}월</span>)}
+                    {trendData.months.map(m => <span key={m} className="text-[10px] font-black text-slate-400">{parseInt(m)}월</span>)}
                  </div>
 
-                 {hoveredMonthIdx !== null && (
+                 {/* 툴팁 */}
+                  {hoveredMonthIdx !== null && (
                      <div 
-                        className="absolute bg-slate-900 text-white p-4 rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-200 z-20 pointer-events-none border border-white/10"
+                        className="absolute bg-slate-900 text-white p-4 rounded-2xl shadow-2xl z-20 pointer-events-none border border-white/10 min-w-[160px] animate-in fade-in zoom-in duration-200"
                         style={{ 
                             left: `${getX(hoveredMonthIdx)}%`, 
-                            top: `${Math.min(getY(trendData.currPoints[hoveredMonthIdx]), 70)}%`,
+                            // 툴팁이 너무 위로 올라가지 않게 최소 높이 조절
+                            top: `${Math.max(getY(trendData.currPoints[hoveredMonthIdx]), 20)}%`, 
                             transform: 'translate(-50%, -110%)' 
                         }}
                      >
-                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 border-b border-white/5 pb-1">{hoveredMonthIdx + 1}월 상세 실적</p>
-                        <div className="space-y-1">
-                            <div className="flex justify-between gap-6">
-                                <span className="text-sm font-bold text-blue-400">{selectedYear}년</span>
-                                <span className="text-sm font-black">${trendData.currPoints[hoveredMonthIdx].toLocaleString()}</span>
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-white/10 pb-2">
+                           {hoveredMonthIdx + 1}월 실적 비교
+                        </p>
+                        <div className="space-y-2">
+                            {/* 올해 데이터 */}
+                            <div className="flex justify-between items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                   <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                   <span className="text-xs font-bold text-slate-300">{selectedYear}년</span>
+                                </div>
+                                <span className="text-sm font-black text-white">
+                                   ${trendData.currPoints[hoveredMonthIdx].toLocaleString()}
+                                </span>
                             </div>
-                            <div className="flex justify-between gap-6 opacity-60">
-                                <span className="text-sm font-bold text-slate-400">{parseInt(selectedYear)-1}년</span>
-                                <span className="text-sm font-black">${trendData.lastPoints[hoveredMonthIdx].toLocaleString()}</span>
+
+                            {/* 작년 데이터 */}
+                            <div className="flex justify-between items-center gap-4">
+                                <div className="flex items-center gap-2">
+                                   <div className="w-2 h-2 rounded-full bg-slate-500"></div>
+                                   <span className="text-xs font-bold text-slate-400">{parseInt(selectedYear) - 1}년</span>
+                                </div>
+                                <span className="text-sm font-black text-slate-300">
+                                   ${trendData.lastPoints[hoveredMonthIdx].toLocaleString()}
+                                </span>
+                            </div>
+
+                            {/* 증감 표시 (옵션) */}
+                            <div className="pt-2 mt-1 border-t border-white/5 flex justify-between items-center">
+                               <span className="text-[10px] font-bold text-slate-500 uppercase">성장률</span>
+                               <span className={`text-[10px] font-black ${
+                                  trendData.currPoints[hoveredMonthIdx] >= trendData.lastPoints[hoveredMonthIdx] 
+                                  ? 'text-emerald-400' : 'text-rose-400'
+                               }`}>
+                                  {trendData.lastPoints[hoveredMonthIdx] > 0 
+                                    ? (((trendData.currPoints[hoveredMonthIdx] - trendData.lastPoints[hoveredMonthIdx]) / trendData.lastPoints[hoveredMonthIdx]) * 100).toFixed(1) + '%'
+                                    : '-%'}
+                               </span>
                             </div>
                         </div>
+                        {/* 툴팁 화살표 */}
+                        <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45 border-r border-b border-white/10"></div>
                      </div>
                  )}
-              </div>
-           </div>
-
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="bg-slate-900 p-10 rounded-[56px] shadow-xl text-white">
-                 <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6">Yearly Growth Insight</h3>
-                 <p className="text-lg font-medium leading-relaxed text-slate-300">
-                    현재까지 <span className="text-white font-black">{selectedYear}년</span> 총 누적 수입은 <span className="text-blue-400 font-black">${currentYearStats.reduce((a,b)=>a+b.total, 0).toLocaleString()}</span>입니다. 
-                    지난해 동기 대비 <span className={`font-black ${currentYearStats.reduce((a,b)=>a+b.total, 0) >= lastYearStats.reduce((a,b)=>a+b.total, 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {(((currentYearStats.reduce((a,b)=>a+b.total, 0) - lastYearStats.reduce((a,b)=>a+b.total, 0)) / (lastYearStats.reduce((a,b)=>a+b.total, 0) || 1)) * 100).toFixed(1)}%
-                    </span> 성과 변화를 보이고 있습니다.
-                 </p>
-              </div>
-              <div className="bg-white p-10 rounded-[56px] border border-slate-100 shadow-sm">
-                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Historical Comparison</h3>
-                 <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                       <span className="text-sm font-bold text-slate-600">최고 실적 달 (Monthly Peak)</span>
-                       <span className="text-sm font-black text-slate-900">{trendData.months[trendData.currPoints.indexOf(Math.max(...trendData.currPoints))]}월</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                       <span className="text-sm font-bold text-slate-600">작년 동기 실적</span>
-                       <span className="text-sm font-black text-slate-400">${lastYearStats.reduce((a,b)=>a+b.total, 0).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                       <span className="text-sm font-bold text-slate-600">올해 월 평균 (Current Avg)</span>
-                       <span className="text-sm font-black text-blue-600">${(currentYearStats.reduce((a,b)=>a+b.total,0)/12).toFixed(0).toLocaleString()}</span>
-                    </div>
-                 </div>
               </div>
            </div>
         </div>
