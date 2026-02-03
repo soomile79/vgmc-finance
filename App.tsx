@@ -26,7 +26,7 @@ const Sidebar = () => {
       <div className="p-8">
         <Link to="/">
           <img
-            src="/logo_kr.png"
+            src="/logo_white.png"
             alt="밴쿠버 지구촌 교회"
             className="w-full h-auto max-h-16 object-contain group-hover:opacity-80 transition-opacity"
           />
