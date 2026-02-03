@@ -63,6 +63,33 @@ const SettingsPage: React.FC = () => {
   const handleSaveMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMember) return;
+
+    // 1. 중복 체크
+    const duplicateName = donors.find(d => 
+      d.id !== editingMember.id && d.name.trim() === editingMember.name.trim()
+    );
+    
+    const duplicateNumber = donors.find(d => 
+      d.id !== editingMember.id && 
+      editingMember.offeringNumber && // 입력한 번호가 있고
+      editingMember.offeringNumber.trim() !== '' && 
+      d.offeringNumber === editingMember.offeringNumber.trim() // 기존 번호와 일치할 때
+    );
+
+    // 2. 경고 및 확인 (Confirm) 로직
+    if (duplicateName) {
+      // 이름이 중복된 경우
+      if (!window.confirm(`이미 '${editingMember.name}' 성도님이 등록되어 있습니다.\n동명이인으로 추가 등록하시겠습니까?`)) {
+        return; // '취소' 클릭 시 중단
+      }
+    } else if (duplicateNumber) {
+      // 번호만 중복된 경우 (가족 공유 등)
+      if (!window.confirm(`[${editingMember.offeringNumber}]번은 이미 '${duplicateNumber.name}' 성도님이 사용 중입니다.\n가족 공유 번호로 등록하시겠습니까?`)) {
+        return; // '취소' 클릭 시 중단
+      }
+    }
+
+    // 3. 저장 진행 (사용자가 확인을 눌렀거나 중복이 없는 경우)
     try {
       await storageService.saveDonor(editingMember);
       setIsMemberModalOpen(false);
@@ -111,6 +138,15 @@ const SettingsPage: React.FC = () => {
       }
     }
   };
+
+  const duplicateWarning = useMemo(() => {
+  if (!editingMember || !editingMember.name) return null;
+  const found = donors.find(d => 
+    d.id !== editingMember.id && 
+    (d.name === editingMember.name || (editingMember.offeringNumber && d.offeringNumber === editingMember.offeringNumber))
+  );
+  return found ? `이미 존재함: ${found.name}(${found.offeringNumber || '번호없음'})` : null;
+}, [editingMember, donors]);
 
   const inputClass = "w-full px-5 py-4 rounded-2xl border-2 border-slate-300 bg-white text-slate-900 focus:ring-4 focus:ring-blue-50 focus:border-blue-500 outline-none transition-all font-bold placeholder:text-slate-400";
 
@@ -250,12 +286,14 @@ const SettingsPage: React.FC = () => {
             <h3 className="text-2xl font-black text-slate-800 mb-8 tracking-tight">정보 수정/등록</h3>
             <div className="space-y-6">
               <div>
-                <label className="text-xs font-black text-slate-500 uppercase mb-2 block">성함</label>
+                <label className="text-xs font-black text-slate-500 uppercase mb-2 block">이름</label>
                 <input required className={inputClass} value={editingMember?.name || ''} onChange={e => setEditingMember({...editingMember!, name: e.target.value})} autoFocus />
+                {duplicateWarning && <p className="text-red-500 text-xs font-bold mt-1">{duplicateWarning}</p>}
               </div>
               <div>
                 <label className="text-xs font-black text-slate-500 uppercase mb-2 block">헌금번호</label>
                 <input className={inputClass} value={editingMember?.offeringNumber || ''} onChange={e => setEditingMember({...editingMember!, offeringNumber: e.target.value})} />
+                
               </div>
               <div>
                 <label className="text-xs font-black text-slate-500 uppercase mb-2 block">비고 (Note)</label>
