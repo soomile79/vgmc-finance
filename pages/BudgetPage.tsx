@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { storageService } from '../services/storageService';
 import { OfferingType, BudgetRecord, OfferingRecord } from '../types';
